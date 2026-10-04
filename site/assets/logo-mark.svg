@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120" role="img" aria-label="Ledgerline">
+  <title>Ledgerline</title>
+  <rect x="4" y="4" width="112" height="112" rx="26" fill="#0E7A4D"/>
+  <rect x="28" y="36" width="52" height="9" rx="4.5" fill="#FFFFFF" opacity=".5"/>
+  <rect x="28" y="55.5" width="76" height="9" rx="4.5" fill="#FFFFFF"/>
+  <rect x="28" y="75" width="44" height="9" rx="4.5" fill="#FFFFFF" opacity=".5"/>
+</svg>

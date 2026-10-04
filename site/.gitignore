@@ -1,0 +1,6 @@
+.DS_Store
+.vscode/
+.idea/
+# never commit a real export
+*.csv
+node_modules/
