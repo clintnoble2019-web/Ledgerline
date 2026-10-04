@@ -293,6 +293,10 @@ footer p{max-width:70ch}
           <li>What each one is and where to look</li>
           <li>PDF you can hand to a preparer</li>
         </ul>
+        <button class="btn primary" id="buyNow" type="button"
+                style="width:100%;margin-top:20px">Buy now &mdash; $79</button>
+        <p style="font-size:13px;color:var(--mute);margin:10px 0 0;text-align:center">
+          Or scan free first and pay only if it finds something.</p>
         <p style="font-size:14px;color:var(--mute);margin:16px 0 0">
           Hand reconciliation starts around $335.</p>
       </div>
@@ -573,8 +577,75 @@ function detect(p){
 }
 
 /* ---------------- UI ---------------- */
-/* Paste your Stripe Payment Link here. Leave blank to keep the demo button. */
-const PAYMENT_LINK = "";
+/* ===================================================================
+   STRIPE
+   -------------------------------------------------------------------
+   1. Stripe dashboard > Payment Links > create one for $79.
+   2. In that link's settings, set the confirmation page to:
+        "Don't show confirmation page"  ->  Redirect to your site, with
+        your URL plus  ?paid=1    e.g.  https://ledgerline.com/?paid=1
+   3. Tick "Allow customers to adjust quantity" OFF, and under Advanced
+      turn ON "client reference ID" so each payment carries the ref below
+      and you can match it to the findings you email.
+   4. Paste the link into LINK. That is the whole integration.
+
+   The redirect to Stripe would normally destroy the analysis, because the
+   file only ever existed in this tab's memory. So the findings are stashed
+   in sessionStorage before leaving and restored on return. The CSV itself
+   is never stashed and never leaves the browser.
+   =================================================================== */
+const STRIPE = {
+  LINK: "https://buy.stripe.com/aFadR840obRS5Sv1ug9ws00",
+  PARAM: "paid",            // the query flag your success URL returns with
+  KEY: "ll.session.v1",     // storage slot (localStorage: survives a new tab)
+  MANUAL: "",               // optional: a code you email, used as ?unlock=CODE
+};
+
+const refId = () => "LL-" + Math.random().toString(36).slice(2, 8).toUpperCase();
+
+/* Open checkout. `parsed`/`res` are optional: buying before a scan is fine,
+   the reference still ties the payment to whatever they upload after. */
+function checkout(parsed, res){
+  if(!STRIPE.LINK){
+    alert('Set STRIPE.LINK at the top of this script to your Stripe Payment '+
+          'Link. Until then, use the preview button to see the paid view.');
+    return;
+  }
+  const ref = refId();
+  if(parsed && res) stash(parsed, res, ref);
+  else localStorage.setItem(STRIPE.KEY + '.ref', ref);
+  const u = new URL(STRIPE.LINK);
+  u.searchParams.set('client_reference_id', ref);
+  // A sandboxed preview cannot navigate itself away. Open a tab; if that is
+  // blocked too, fall through to a normal navigation, which works once this
+  // is deployed on its own domain.
+  const w = window.open(u.toString(), '_blank', 'noopener');
+  if(!w) location.href = u.toString();
+}
+
+function stash(parsed, res, ref){
+  try{
+    localStorage.setItem(STRIPE.KEY, JSON.stringify({
+      ref, at: Date.now(),
+      parsed: {vendor: parsed.vendor, has: parsed.has, total: parsed.total,
+               failed: parsed.failed, legs: parsed.legs.length},
+      res: {headline: res.headline, capped: res.capped,
+            findings: res.findings.map(f => ({...f, legs: f.legs}))}
+    }));
+  }catch(e){ /* storage full or blocked — the user can re-upload */ }
+}
+
+function restore(){
+  try{
+    const raw = localStorage.getItem(STRIPE.KEY);
+    if(!raw) return null;
+    const d = JSON.parse(raw);
+    // a stale session is not a paid one
+    if(Date.now() - d.at > 6*3600*1000){ localStorage.removeItem(STRIPE.KEY); return null }
+    d.parsed.legs = [];
+    return d;
+  }catch(e){ return null }
+}
 
 const $=s=>document.querySelector(s);
 const money=n=>'$'+Math.round(n).toLocaleString();
@@ -652,20 +723,16 @@ function render(parsed,res){
     'is not a tax preparer and this is not tax advice. Your preparer decides what '+
     'is reportable. Your file was read in this browser and was not uploaded.';
 
-  if($('#pay')) $('#pay').onclick=()=>{
-    if(!PAYMENT_LINK){ alert('Set PAYMENT_LINK at the top of this script to your '+
-      'Stripe Payment Link, then this button opens checkout.'); return }
-    // the file never leaves the browser; only the job reference travels
-    sessionStorage.setItem('ll_pending', Date.now());
-    location.href = PAYMENT_LINK;
-  };
+  if($('#pay')) $('#pay').onclick=()=>checkout(parsed, res);
   if($('#demo')) $('#demo').onclick=()=>{PAID=true;render(parsed,res)};
   $('#landing').style.display='none'; $('#app').classList.add('on');
   scrollTo({top:0,behavior:'smooth'});
 }
 
 function handle(text){
-  try{ const p=parse(text); render(p,detect(p)) }
+  try{
+    if(localStorage.getItem('ll.paid') === '1') PAID = true;
+    const p=parse(text); render(p,detect(p)) }
   catch(e){
     $('#landing').style.display=''; $('#app').classList.remove('on');
     const box=document.createElement('div'); box.className='err';
@@ -707,6 +774,42 @@ const SAMPLE=`Date,Sent Amount,Sent Currency,Received Amount,Received Currency,S
 2026-07-01 10:00:00,0.2,ETH,,,Ledger,,sell,0xeee5f6a7b8c9d0e1f2a3,800,800,120,k12
 2026-07-01 10:00:30,0.2,ETH,,,Ledger,,sell,0xeee5f6a7b8c9d0e1f2a3,800,800,120,k13`;
 $('#sample').onclick=()=>handle(SAMPLE);
+$('#buyNow').onclick=()=>checkout(null, null);
+
+/* ---- returning from Stripe, or unlocking by hand ---- */
+(function onLoad(){
+  const q = new URLSearchParams(location.search);
+  const paid = q.get(STRIPE.PARAM) === '1';
+  const code = q.get('unlock');
+  const manual = STRIPE.MANUAL && code && code === STRIPE.MANUAL;
+  if(!paid && !manual) return;
+
+  const d = restore();
+  if(!d){
+    // bought before scanning, or the tab was closed — either way they are paid
+    // paid, but the tab was closed or the session expired
+    $('#landing').style.display='';
+    const box = document.createElement('div');
+    box.className = 'note';
+    box.innerHTML = '<span>\u2713</span><div><b>Payment received.</b> Upload your '+
+      'export and it will open with every finding unlocked. Nothing is stored '+
+      'on our side, so the file has to be read again here \u2014 that is by design.';
+    document.querySelector('.note').after(box);
+    localStorage.setItem('ll.paid', '1');
+    history.replaceState({}, '', location.pathname);
+    return;
+  }
+  PAID = true;
+  localStorage.setItem('ll.paid', '1');
+  history.replaceState({}, '', location.pathname);
+  render(d.parsed, d.res);
+  const bar = document.createElement('div');
+  bar.className = 'note';
+  bar.innerHTML = `<span>\u2713</span><div><b>Unlocked.</b> Reference `+
+    `<code style="font-family:var(--m)">${d.ref}</code> \u2014 quote it if you `+
+    `need to reach us about this report.</div>`;
+  $('#summary').after(bar);
+})();
 </script>
 </body>
 </html>

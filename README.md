@@ -1,35 +1,45 @@
-# Ledgerline — export diagnostic
+# Ledgerline
 
-Reads a Koinly or CoinTracker transaction export and ranks the rows that
-inflate the gain column. Does not recompute tax.
-
-```
-python3 cli.py your_export.csv          # free summary + one full finding
-python3 cli.py your_export.csv --paid   # everything
-python3 tests/test_ledgerline.py        # 30 tests
-```
-
-## Use `process()`, not `analyze()`
-
-```python
-from ledgerline import process
-free_summary, paid_detail = process(csv_text)
-```
-
-`process()` parses in memory, redacts, and retains nothing. `analyze()` is
-the low-level path for tests and hands back full hashes — never persist or
-log its result. See COMPLIANCE.md.
-
-## What's here
+Reads a Koinly or CoinTracker export and ranks the rows that inflate the gain
+column. It does not recompute tax.
 
 ```
-ledgerline/models.py   legs and findings, Decimal only, blank != zero
-ledgerline/parse.py    two vendor adapters, leg splitter, fail-loud headers
-ledgerline/detect.py   five detectors + single-assignment dollars
-ledgerline/report.py   free (one checkable finding) and paid output
-ledgerline/privacy.py  redaction, 30-day retention, no-retention process()
-tests/                 30 tests, every "done means" and privacy rule locked
+ledgerline/    the Python package — parser, detectors, redaction
+tests/         30 tests
+cli.py         run the diagnostic on a file
+site/          the website: same detectors, ported to run in the browser
+COMPLIANCE.md  what the code does about privacy and claims
 ```
+
+## Run
+
+```
+python3 tests/test_ledgerline.py      # 30 tests
+python3 cli.py export.csv             # free summary
+python3 cli.py export.csv --paid      # everything
+```
+
+Site: open `site/index.html`. No build step.
+
+## Two implementations, one set of rules
+
+The Python package is the reference. `site/index.html` carries a JavaScript
+port of the same detectors so the file can be parsed in the browser and never
+uploaded.
+
+**They must stay in sync.** Change a detector in one and change it in the
+other, or the site and the CLI will disagree about the same file. The Python
+tests are the specification; there is no JS test suite yet.
+
+Rules both must hold:
+
+- A sale on one exchange plus a later buy on another is never a transfer.
+- Only a shared transaction hash may be called a proven pair.
+- A first disposal with no prior history is an opening gap, not the headline.
+- An airdrop at zero cost is not an error.
+- A source row's gain is counted once, and the headline never exceeds the
+  file's own gain total.
+- Nothing ever says the user owes less tax.
 
 ## Detectors
 
@@ -44,26 +54,20 @@ tests/                 30 tests, every "done means" and privacy rule locked
 | `duplicate` same hash twice | high | gain on the extra row |
 
 Priority for dollars: pair → mid_break → zero_cost → duplicate → opening_gap.
-A source row's gain lands on exactly one finding. The headline is capped at
-the file's own gain total.
 
-## Two things to verify against a real export before building UI
+## Before this is real
 
-**1. Column maps are guesses.** `parse.py` encodes plausible Koinly and
-CoinTracker headers. Run `cli.py` on a real file — if it raises
-`Unrecognised export format`, fix the map and save the file as a dated
-fixture. Never make the parser guess.
+1. **Kill-check.** Open a Koinly tax report and look at the warnings filter.
+   If it already ranks by gain and names the edit, stop.
+2. **Column maps are guesses.** `ledgerline/parse.py` and the `KOINLY` / `CT`
+   maps in `site/index.html` encode plausible headers. Run `cli.py` on a real
+   export; if it fails, fix both and save a dated fixture.
+3. **The history export may have no gain column.** Vendors ship transaction
+   history and capital gains as different files. Both implementations report
+   counts-without-dollars when money columns are absent. If the history has no
+   gain column, the $79 anchor needs rethinking.
 
-**2. The transaction history may have no gain column.** Vendors export
-*history* (wallets, hashes, transfers, usually no gain) and *capital gains*
-(gain, but disposals only, no transfers) as different files. This parser
-reads the history and uses money columns when present; when absent it
-reports counts with no dollars and says so. If the history has no gain
-column, the $79 pitch needs a second upload or a different anchor — decide
-that before the paywall copy.
+## Taking money
 
-## Known gaps
-
-- Wallet labels drive the balance walk. No labels, no walk — reported, not guessed.
-- `DUST` thresholds in `detect.py` are per-asset guesses. Tune on a real file.
-- No Stripe, no worker, no UI. Pure logic, by design.
+`site/README.md` has the Stripe setup. Payment Link, no backend, manual
+delivery to start.
