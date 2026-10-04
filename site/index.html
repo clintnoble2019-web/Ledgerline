@@ -113,6 +113,52 @@ ul.ticks li::before{content:'';position:absolute;left:0;top:13px;width:11px;heig
   border-left:2px solid var(--teal);border-bottom:2px solid var(--teal);
   transform:rotate(-45deg)}
 
+/* ---------- triage controls ---------- */
+.tools{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin:22px 0 4px}
+.chip2{background:var(--surface);border:1px solid var(--line);border-radius:99px;
+  padding:8px 14px;font-size:14px;color:var(--body);cursor:pointer;min-height:40px;
+  font-family:var(--s);display:inline-flex;align-items:center;gap:7px}
+.chip2:hover{border-color:var(--mute)}
+.chip2[aria-pressed="true"]{background:var(--teal);border-color:var(--teal);color:#fff}
+.chip2 b{font-family:var(--d);font-weight:700}
+.chip2[aria-pressed="true"] b{color:#fff}
+.tools .spacer{margin-left:auto}
+.toggle{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--body);
+  cursor:pointer;min-height:40px;user-select:none}
+.toggle input{width:17px;height:17px;accent-color:var(--teal);cursor:pointer}
+.progress{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+  padding:14px 18px;margin-top:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.progress .bar{flex:1 1 180px;height:8px;background:var(--bg);border:1px solid var(--line);
+  border-radius:5px;overflow:hidden}
+.progress .fill{height:100%;background:var(--teal);transition:width .2s}
+.progress .txt{font-size:15px;color:var(--body)}
+.progress .txt b{font-family:var(--d);color:var(--ink)}
+.finding.done{opacity:.52}
+.finding.done .ttl{text-decoration:line-through}
+.fcheck{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--mute);
+  cursor:pointer;user-select:none;min-height:34px}
+.fcheck input{width:16px;height:16px;accent-color:var(--teal);cursor:pointer}
+.rowcopy{background:none;border:1px solid var(--line);border-radius:6px;color:var(--mute);
+  font-family:var(--m);font-size:12px;padding:4px 9px;cursor:pointer;min-height:32px}
+.rowcopy:hover{border-color:var(--teal);color:var(--teal)}
+.grouphead{font-family:var(--d);font-weight:600;font-size:15px;color:var(--ink);
+  margin:26px 0 2px;display:flex;align-items:center;gap:10px}
+.grouphead .amt2{margin-left:auto;font-weight:700;color:var(--amber)}
+.mathline{font-family:var(--m);font-size:12px;color:var(--mute);margin-top:10px;
+  padding-top:10px;border-top:1px solid var(--line)}
+.empty{color:var(--mute);font-size:15px;padding:22px 0}
+
+@media print{
+  header,.tools,.locked,.blurred,footer,#landing,.progress .bar,
+  button,.fcheck,.rowcopy{display:none !important}
+  body{background:#fff;color:#000;font-size:11pt}
+  .finding{break-inside:avoid;border:1px solid #bbb;page-break-inside:avoid}
+  .summary{border:1px solid #bbb}
+  .big{font-size:28pt}
+  a{text-decoration:none;color:#000}
+  .wrap{max-width:none;padding:0}
+}
+
 /* ---------- results ---------- */
 #app{display:none}
 #app.on{display:block}
@@ -561,15 +607,18 @@ function detect(p){
     }
   }
 
-  /* dollars land on exactly one finding */
+  /* Dollars land on exactly one finding. Only a finding that carries dollars
+     may claim a row — a $0 guess claiming would silence a real figure on the
+     same row. Mirrors _contributes() in the Python package. */
   const PRI=['pair','break','zero','dup','guess','opening'];
+  const contributes = f => f.conf==='high' && f.kind!=='opening';
   F.sort((a,b)=>PRI.indexOf(a.kind)-PRI.indexOf(b.kind)||Math.abs(b.impact)-Math.abs(a.impact));
   const claimed=new Set(); let headline=0;
   for(const f of F){
+    if(!contributes(f)){ f.counted=true; continue }
     const rows=f.legs.filter(l=>l.dir==='out').map(l=>l.row);
     if(rows.some(r=>claimed.has(r))){ f.counted=false; f.impact=0; f.basis='none' }
-    else { rows.forEach(r=>claimed.add(r)); f.counted=true;
-           if(f.conf==='high'&&f.kind!=='opening') headline+=f.impact }
+    else { rows.forEach(r=>claimed.add(r)); f.counted=true; headline+=f.impact }
   }
   let capped=false;
   if(p.total!=null&&p.total>0&&headline>p.total){ headline=p.total; capped=true }
@@ -659,38 +708,139 @@ function legRow(l){
     <span>${l.wallet||'(no label)'}</span>
     ${l.hash?`<span style="color:var(--mute)">${short(l.hash)}</span>`:''}</div>`;
 }
+const KEYS = {
+  pair:'Split transfer', break:'Missing inbound', zero:'No purchase on file',
+  dup:'Imported twice', guess:'Timing guess', opening:'Opening gap'
+};
+let FILTER = null, HIDE_ZERO = true, DONE = {};
+
+const doneKey = f => f.kind + ':' + f.legs.map(l=>l.row).join('-');
+function loadDone(sig){
+  try{ DONE = JSON.parse(localStorage.getItem('ll.done.'+sig) || '{}') }catch(e){ DONE = {} }
+}
+function saveDone(sig){
+  try{ localStorage.setItem('ll.done.'+sig, JSON.stringify(DONE)) }catch(e){}
+}
+
 function findingCard(f,free){
-  return `<div class="finding${free?' free':''}">
+  const k = doneKey(f);
+  const done = !!DONE[k];
+  const rows = f.legs.map(l=>l.row).join(', ');
+  const label = f.title || KEYS[f.kind] || f.kind;
+  return `<div class="finding${free?' free':''}${done?' done':''}" data-k="${k}" data-kind="${f.kind}">
     <div class="head">
-      <span class="ttl">${f.title}</span>
+      <span class="ttl">${label}</span>
       <span class="tag ${f.conf==='high'?'hi':'lo'}">${f.conf==='high'?'proven':'check this'}</span>
       ${free?'<span class="tag hi">free sample</span>':''}
       ${f.impact?`<span class="imp">${money(f.impact)}</span>`:''}
     </div>
     <div class="legs">${f.legs.map(legRow).join('')}</div>
     <div class="fix">${f.fix}</div>
-    ${f.basis==='proceeds, not gain'?'<div class="sub">Impact taken from the proceeds column — this export has no gain column, so it may overstate.</div>':''}
+    <div class="mathline">Impact read from the <b>${f.basis==='none'?'—':f.basis}</b> column
+      &middot; row${f.legs.length>1?'s':''} ${rows}</div>
+    ${f.basis==='proceeds, not gain'?'<div class="sub">This export has no gain column, so the figure comes from proceeds and may overstate.</div>':''}
     ${f.counted===false?'<div class="sub">Context only. These dollars are already counted under a higher-priority finding.</div>':''}
+    <div class="head" style="margin:14px 0 0">
+      <label class="fcheck"><input type="checkbox" data-done="${k}"${done?' checked':''}>
+        Handled in ${STATE?STATE.parsed.vendor:'your tool'}</label>
+      <button class="rowcopy" type="button" data-copy="${rows}">Copy row ${f.legs.length>1?'numbers':'number'}</button>
+    </div>
   </div>`;
 }
 
+function visible(list){
+  return list.filter(f => (!FILTER || f.kind === FILTER)
+                       && (!HIDE_ZERO || f.impact > 0 || f.conf === 'low'));
+}
+
+function paintProgress(list){
+  const el2 = $('#progress'); if(!el2) return;
+  const total = list.length;
+  const done = list.filter(f => DONE[doneKey(f)]).length;
+  const left = list.filter(f => !DONE[doneKey(f)]).reduce((a,f)=>a+f.impact,0);
+  el2.innerHTML = `
+    <div class="txt"><b>${done}</b> of <b>${total}</b> handled</div>
+    <div class="bar"><div class="fill" style="width:${total?done/total*100:0}%"></div></div>
+    <div class="txt">${money(left)} still outstanding</div>`;
+}
+
+function paintList(){
+  if(!STATE) return;
+  const {parsed,res} = STATE;
+  const rest = res.findings.filter(f => f !== STATE.show);
+  const show = visible(rest);
+  const host = $('#list'); if(!host) return;
+
+  if(!show.length){
+    host.innerHTML = `<div class="empty">Nothing matches that filter.${
+      HIDE_ZERO ? ' Context-only findings are hidden &mdash; untick the box to see them.' : ''}</div>`;
+  } else {
+    // grouped, highest-value type first
+    const groups = {};
+    show.forEach(f => (groups[f.kind] ||= []).push(f));
+    const order = Object.keys(groups).sort((a,b)=>
+      groups[b].reduce((x,f)=>x+f.impact,0) - groups[a].reduce((x,f)=>x+f.impact,0));
+    host.innerHTML = order.map(k => {
+      const sum = groups[k].reduce((a,f)=>a+f.impact,0);
+      return `<div class="grouphead">${KEYS[k]||k}
+        <span style="color:var(--mute);font-weight:400">${groups[k].length}</span>
+        ${sum?`<span class="amt2">${money(sum)}</span>`:''}</div>` +
+        groups[k].map(f=>findingCard(f,false)).join('');
+    }).join('');
+  }
+  paintProgress(rest);
+  host.querySelectorAll('[data-done]').forEach(cb => cb.onchange = e => {
+    const k = e.target.dataset.done;
+    if(e.target.checked) DONE[k] = 1; else delete DONE[k];
+    saveDone(STATE.sig);
+    e.target.closest('.finding').classList.toggle('done', e.target.checked);
+    paintProgress(rest);
+  });
+  host.querySelectorAll('[data-copy]').forEach(b => b.onclick = async e => {
+    const t = e.target.dataset.copy;
+    try{ await navigator.clipboard.writeText(t); e.target.textContent = 'Copied'; }
+    catch(err){ e.target.textContent = t; }
+    setTimeout(()=>{ e.target.textContent = 'Copy row number' }, 1400);
+  });
+}
+
+function toolbar(rest){
+  const counts = {};
+  rest.forEach(f => counts[f.kind] = (counts[f.kind]||0)+1);
+  const chips = Object.keys(counts).sort((a,b)=>counts[b]-counts[a]).map(k =>
+    `<button class="chip2" type="button" data-f="${k}" aria-pressed="${FILTER===k}">
+       <b>${counts[k]}</b>${KEYS[k]||k}</button>`).join('');
+  return `<div class="tools">
+    <button class="chip2" type="button" data-f="" aria-pressed="${FILTER===null}">All ${rest.length}</button>
+    ${chips}
+    <span class="spacer"></span>
+    <label class="toggle"><input type="checkbox" id="hz"${HIDE_ZERO?' checked':''}>
+      Hide context-only</label>
+    <button class="btn" type="button" id="print" style="padding:9px 15px;min-height:40px;font-size:14px">Print / PDF</button>
+  </div>
+  <div class="progress" id="progress"></div>`;
+}
+
 function render(parsed,res){
-  STATE={parsed,res};
-  const counts={};
-  res.findings.forEach(f=>{ counts[f.title]=(counts[f.title]||0)+1 });
-  const proven=res.findings.filter(f=>f.conf==='high'&&f.kind!=='opening');
-  const show = res.findings.find(f=>f.kind==='pair') ||
+  const sig = parsed.vendor + ':' + parsed.legs.length + ':' + res.findings.length;
+  loadDone(sig);
+  const show = res.findings.find(f=>f.kind==='pair'&&f.conf==='high') ||
                res.findings.find(f=>f.kind==='break') ||
                res.findings.find(f=>f.conf==='high') || null;
+  STATE = {parsed, res, show, sig};
+
+  const counts={};
+  res.findings.forEach(f=>{ const k=KEYS[f.kind]||f.kind; counts[k]=(counts[k]||0)+1 });
 
   $('#summary').innerHTML = `
-    <div class="kicker">${parsed.vendor} export · ${parsed.legs.length} movements read</div>
+    <div class="kicker">${parsed.vendor} export &middot; ${parsed.legs.length} movements read</div>
     <div class="big">${parsed.has.money?money(res.headline):res.findings.length+' findings'}</div>
     <div class="sub">${parsed.has.money
       ? 'of the gain column sits on rows with a problem'+(res.capped?' (capped at the file total)':'')
       : 'this export has no gain column, so findings are counts only'}</div>
     <div class="counts">${Object.entries(counts).map(([k,v])=>
-      `<div class="count"><b>${v}</b>${k}</div>`).join('')||'<div class="count">Nothing found — this export looks clean.</div>'}</div>
+      `<div class="count"><b>${v}</b>${k}</div>`).join('')
+      ||'<div class="count">Nothing found &mdash; this export looks clean.</div>'}</div>
     ${parsed.failed.length?`<div class="sub">${parsed.failed.length} rows could not be read and were skipped.</div>`:''}
     ${!parsed.has.wallets?'<div class="sub">No wallet labels in this export, so balance checks were skipped.</div>':''}`;
 
@@ -700,16 +850,17 @@ function render(parsed,res){
       <p style="margin-top:8px">Look this up in ${parsed.vendor} before you decide
       whether the rest is worth $79.</p>` + findingCard(show,true);
   }
-  const rest=res.findings.filter(f=>f!==show);
+  const rest = res.findings.filter(f=>f!==show);
   if(rest.length){
     if(PAID){
-      html += `<h2 style="margin-top:34px">The other ${rest.length}</h2>` +
-              rest.map(f=>findingCard(f,false)).join('');
+      html += `<h2 style="margin-top:34px">The other ${rest.length}</h2>`
+            + toolbar(rest) + `<div id="list"></div>`;
     } else {
+      const proven = rest.filter(f=>f.conf==='high'&&f.kind!=='opening');
       html += `<div class="locked">
         <h3>${rest.length} more findings</h3>
-        <p>${proven.length} proven, ranked by dollar impact, with the exact rows
-        and what each one is.</p>
+        <p>${proven.length} proven, ranked by dollar impact, with the exact rows,
+        a checklist to work through them, and a PDF for your preparer.</p>
         <button class="btn primary" id="pay" type="button">Unlock for $79</button>
         <div style="margin-top:10px"><button class="btn ghost" id="demo" type="button">
           Preview the paid view (demo)</button></div>
@@ -723,6 +874,21 @@ function render(parsed,res){
     'is not a tax preparer and this is not tax advice. Your preparer decides what '+
     'is reportable. Your file was read in this browser and was not uploaded.';
 
+  if(PAID){
+    paintList();
+    document.querySelectorAll('[data-f]').forEach(b => b.onclick = () => {
+      FILTER = b.dataset.f || null;
+      document.querySelectorAll('[data-f]').forEach(x =>
+        x.setAttribute('aria-pressed', String((x.dataset.f||null) === FILTER)));
+      paintList();
+    });
+    const hz = $('#hz'); if(hz) hz.onchange = e => { HIDE_ZERO = e.target.checked; paintList() };
+    const pr = $('#print'); if(pr) pr.onclick = () => {
+      const was = {f:FILTER, h:HIDE_ZERO};
+      FILTER = null; HIDE_ZERO = false; paintList();
+      setTimeout(()=>{ print(); FILTER = was.f; HIDE_ZERO = was.h; paintList() }, 80);
+    };
+  }
   if($('#pay')) $('#pay').onclick=()=>checkout(parsed, res);
   if($('#demo')) $('#demo').onclick=()=>{PAID=true;render(parsed,res)};
   $('#landing').style.display='none'; $('#app').classList.add('on');

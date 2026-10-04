@@ -185,8 +185,9 @@ def zero_cost(legs) -> list:
             kind="zero_cost", confidence="high", legs=[l],
             impact=imp, impact_basis=basis,
             fix=("This disposal has no purchase in the file, so the whole "
-                 "proceeds became gain. Import the wallet or year that holds "
-                 "the acquisition. Do not type in a cost you cannot support."),
+                 "proceeds became gain. The acquisition is usually in a wallet "
+                 "or year that was not imported. A cost you cannot document is "
+                 "not a fix."),
         ))
     return out
 
@@ -228,6 +229,13 @@ def duplicates(legs, has_vendor_id: bool, has_hash: bool) -> tuple:
 PRIORITY = ["pair", "mid_break", "zero_cost", "duplicate", "opening_gap"]
 
 
+def _contributes(f) -> bool:
+    """Only a finding that carries dollars may claim a row. A low-confidence
+    guess and an opening gap are context: they contribute $0, so letting them
+    claim would silence a real figure on the same row."""
+    return f.confidence == "high" and f.kind != "opening_gap"
+
+
 def assign(findings, total_gain=None) -> dict:
     """A source row's gain lands on exactly one finding. Lower-priority
     findings keep the row as context and contribute $0, so the headline can
@@ -235,6 +243,8 @@ def assign(findings, total_gain=None) -> dict:
     findings.sort(key=lambda f: (PRIORITY.index(f.kind), -abs(f.impact)))
     claimed, headline = set(), ZERO
     for f in findings:
+        if not _contributes(f):
+            continue                      # context only: never claims
         rows = {l.source_row for l in f.legs if l.direction == OUT}
         if rows & claimed:
             f.counted = False
@@ -242,8 +252,7 @@ def assign(findings, total_gain=None) -> dict:
             f.impact_basis = "none"
         else:
             claimed |= rows
-            if f.confidence == "high" and f.kind != "opening_gap":
-                headline += f.impact
+            headline += f.impact
     # the headline can never exceed the report the user is looking at
     capped = False
     if total_gain is not None and total_gain > 0 and headline > total_gain:

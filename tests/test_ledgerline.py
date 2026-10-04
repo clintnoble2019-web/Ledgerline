@@ -229,6 +229,25 @@ def test_footer_disclaims_preparer_status():
 def test_purge_is_a_real_statement():
     assert "DELETE FROM jobs" in purge_sql() and "expires_at" in purge_sql()
 
+def test_a_zero_dollar_guess_never_silences_a_real_finding():
+    """A low-confidence pair contributes $0. If it claimed its rows it would
+    zero out a real zero-cost disposal sitting on the same row."""
+    p, r = analyze(csv(
+        "2026-04-02 08:00:00,40,SOL,,,Phantom,Kraken,withdrawal,,5280,5280,0,t1",
+        "2026-04-02 19:36:00,,,39.94,SOL,Phantom,Kraken,deposit,,,,,t2"))
+    guess = [f for f in r["findings"] if f.kind == "pair" and f.confidence == "low"]
+    zero  = [f for f in r["findings"] if f.kind == "zero_cost" and f.confidence == "high"]
+    assert guess, "the timing guess should still be reported"
+    assert zero and zero[0].counted and zero[0].impact == Decimal("5280")
+    assert r["headline"] == Decimal("5280")
+
+def test_an_opening_gap_never_claims_a_row():
+    p, r = analyze(csv(
+        "2026-06-01 10:00:00,1.0,BTC,,,Vault,,sell,0xddd,41000,41000,0,u1"))
+    assert any(f.kind == "opening_gap" for f in r["findings"])
+    z = [f for f in r["findings"] if f.kind == "zero_cost"][0]
+    assert z.counted and z.impact == Decimal("41000")
+
 if __name__ == "__main__":
     n = 0
     for k, v in sorted(globals().items()):
