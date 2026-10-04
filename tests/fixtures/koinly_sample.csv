@@ -1,0 +1,14 @@
+Date,Sent Amount,Sent Currency,Received Amount,Received Currency,Fee Amount,Fee Currency,Sending Wallet,Receiving Wallet,Label,TxHash,Gain,Proceeds,Cost Basis,Koinly ID
+2026-01-05 10:00:00,,,2.0,ETH,,,,Coinbase,deposit,,,,,k1
+2026-02-01 09:00:00,1.0,ETH,,,0.002,ETH,Coinbase,Ledger,withdrawal,0xaaa,3200,3200,0,k2
+2026-02-01 09:30:00,,,0.998,ETH,,,Coinbase,Ledger,deposit,0xaaa,,,,,k3
+2026-03-10 12:00:00,0.5,ETH,1800,USDC,,,Ledger,Ledger,trade,0xbbb,900,1800,900,k4
+2026-04-02 08:00:00,3.0,SOL,,,,,Phantom,Kraken,withdrawal,,2100,2100,0,k5
+2026-04-02 15:00:00,,,2.99,SOL,,,Phantom,Kraken,deposit,,,,,,k6
+2026-05-01 11:00:00,,,500,ARB,,,,Ledger,airdrop,,,,,k7
+2026-05-20 11:00:00,500,ARB,,,,,Ledger,,sell,0xccc,640,640,0,k8
+2026-06-01 10:00:00,1.0,BTC,,,,,Vault,,sell,0xddd,41000,41000,0,k9
+2026-06-15 10:00:00,2.0,ETH,,,,,Coinbase,Kraken,withdrawal,,7400,7400,0,k10
+2026-06-16 10:00:00,,,5.0,ETH,,,Binance,Kraken,deposit,,,,,,k11
+2026-07-01 10:00:00,0.2,ETH,,,,,Ledger,,sell,0xeee,800,800,120,k12
+2026-07-01 10:00:30,0.2,ETH,,,,,Ledger,,sell,0xeee,800,800,120,k13
